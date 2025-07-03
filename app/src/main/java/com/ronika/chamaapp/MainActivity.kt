@@ -18,13 +18,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
@@ -236,8 +241,16 @@ fun AddUserScreen(
 @Composable
 fun AddContributionScreen(
     onNavigateUp: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contributionViewModel: ContributionViewModel = viewModel()
 ) {
+    var selectedUser by remember { mutableStateOf<User?>(null) }
+    var amountString by remember { mutableStateOf("") }
+    var expandedDropdown by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val usersList by contributionViewModel.allUsers.collectAsState(emptyList())
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -257,16 +270,104 @@ fun AddContributionScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("Add Contribution Screen Content", style = MaterialTheme.typography.headlineSmall)
-            // TODO: Add fields for userId (perhaps a dropdown), amount, date and a Save Button
+            Text(
+                "Enter Contribution Details",
+                style = MaterialTheme.typography.headlineSmall
+            )
+
+            // User Dropdown
+            ExposedDropdownMenuBox(
+                expanded = expandedDropdown,
+                onExpandedChange = { expandedDropdown = !expandedDropdown },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = selectedUser?.name ?: "Select User",
+                    onValueChange = { /* Read only */ },
+                    label = { Text("User") },
+                    readOnly = true,
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedDropdown)
+                    },
+                    modifier = Modifier
+                        .menuAnchor() // Important for proper positioning
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = expandedDropdown,
+                    onDismissRequest = { expandedDropdown = false },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (usersList.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("No users found. Add users first.") },
+                            onClick = { expandedDropdown = false },
+                            enabled = false
+                        )
+                    }
+                    usersList.forEach { user ->
+                        DropdownMenuItem(
+                            text = { Text(user.name) },
+                            onClick = {
+                                selectedUser = user
+                                expandedDropdown = false
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Amount TextField
+            OutlinedTextField(
+                value = amountString,
+                onValueChange = { input ->
+                    // Allow only numbers and a single decimal point
+                    if (input.matches(Regex("^\\d*\\.?\\d*\$"))) {
+                        amountString = input
+                    }
+                },
+                label = { Text("Amount") },
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                singleLine = true
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Submit Button
+            Button(
+                onClick = {
+                    val amount = amountString.toDoubleOrNull()
+                    if (selectedUser == null) {
+                        Toast.makeText(context, "Please select a user", Toast.LENGTH_SHORT).show()
+                    } else if (amount == null || amount <= 0) {
+                        Toast.makeText(context, "Please enter a valid amount", Toast.LENGTH_SHORT).show()
+                    } else {
+                        contributionViewModel.addContribution(
+                            userId = selectedUser!!.id, // selectedUser is guaranteed not null here
+                            amount = amount,
+                            date = System.currentTimeMillis() // Use current date, or implement a date picker
+                        )
+                        Toast.makeText(context, "Contribution Saved!", Toast.LENGTH_SHORT).show()
+                        // Optionally clear fields or navigate up
+                        selectedUser = null
+                        amountString = ""
+                        onNavigateUp()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = usersList.isNotEmpty() // Disable button if no users to select from
+            ) {
+                Text("Save Contribution")
+            }
         }
     }
 }
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ViewUsersScreen(

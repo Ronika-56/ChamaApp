@@ -1,8 +1,12 @@
 package com.ronika.chamaapp
 
+import android.app.Application
 import android.content.Context
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import androidx.room.Dao
 import androidx.room.Database
+import androidx.room.Embedded
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -10,9 +14,13 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
+import androidx.room.Relation
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
 
 @Entity(tableName = "users")
 data class User(
@@ -77,6 +85,10 @@ interface AppDao {
     @Query("DELETE FROM contributions WHERE id = :contributionId")
     suspend fun deleteContributionById(contributionId: Int)
 
+    @Transaction // Ensures the query is performed atomically
+    @Query("SELECT * FROM users") // Select all users
+    fun getUsersWithContributions(): Flow<List<UserWithContributions>>
+
     // --- Relationship Query (Optional but often useful) ---
 
     // Example: Get User with all their contributions
@@ -122,3 +134,18 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 }
+
+
+
+
+data class UserWithContributions(
+    @Embedded val user: User,
+    @Relation(
+        parentColumn = "id", // Primary key of the User table
+        entityColumn = "userId" // Foreign key in the Contribution table
+    )
+    val contributions: List<Contribution>
+)
+
+
+
