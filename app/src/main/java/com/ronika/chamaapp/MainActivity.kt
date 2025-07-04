@@ -59,7 +59,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.ronika.chamaapp.ui.theme.ChamaAppTheme
+import java.text.NumberFormat
+import java.text.SimpleDateFormat
 import java.util.Date
+import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -480,16 +483,30 @@ fun UserItem(
     }
 }
 
+
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ViewContributionsScreen(
     onNavigateUp: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contributionViewModel: ContributionViewModel = viewModel()
 ) {
+    var selectedUser by remember { mutableStateOf<User?>(null) }
+    var expandedDropdown by remember { mutableStateOf(false) }
+
+    val usersList by contributionViewModel.allUsers.collectAsState()
+    val contributionsList by contributionViewModel.contributionsForSelectedUser.collectAsState()
+
+    // Effect to update selected user in ViewModel when 'selectedUser' state changes
+    LaunchedEffect(selectedUser) {
+        contributionViewModel.selectUser(selectedUser?.id)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("View Contributions") },
+                title = { Text("View User Contributions") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateUp) {
                         Icon(
@@ -505,12 +522,134 @@ fun ViewContributionsScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .padding(innerPadding)
+                .padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Add Contribution Screen Content", style = MaterialTheme.typography.headlineSmall)
-            // TODO: Add fields for userId (perhaps a dropdown), amount, date and a Save Button
+            // 1. User Dropdown Menu
+            ExposedDropdownMenuBox(
+                expanded = expandedDropdown,
+                onExpandedChange = { expandedDropdown = !expandedDropdown },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                OutlinedTextField(
+                    value = selectedUser?.name ?: "Select a User",
+                    onValueChange = { /* Read Only */ },
+                    label = { Text("User") },
+                    readOnly = true,
+                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedDropdown) },
+                    modifier = Modifier
+                        .menuAnchor()
+                        .fillMaxWidth()
+                )
+                ExposedDropdownMenu(
+                    expanded = expandedDropdown,
+                    onDismissRequest = { expandedDropdown = false },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (usersList.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("No users found.") },
+                            onClick = { expandedDropdown = false },
+                            enabled = false
+                        )
+                    }
+                    usersList.forEach { user ->
+                        DropdownMenuItem(
+                            text = { Text(user.name) },
+                            onClick = {
+                                selectedUser = user
+                                expandedDropdown = false
+                                // ViewModel's selected user is updated via LaunchedEffect
+                            }
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // 2. Display Contributions for the Selected User
+            if (selectedUser == null) {
+                Text("Please select a user to view their contributions.", style = MaterialTheme.typography.bodyLarge)
+            } else {
+                if (contributionsList.isEmpty()) {
+                    Text(
+                        "No contributions found for ${selectedUser?.name}.",
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                } else {
+                    Text(
+                        "Contributions by ${selectedUser?.name}:",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .align(Alignment.Start)
+                            .padding(bottom = 8.dp)
+                    )
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(), // Take remaining space
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(
+                            items = contributionsList,
+                            key = { contribution -> contribution.id } // Use contribution ID as key
+                        ) { contribution ->
+                            ContributionDisplayItem(contribution = contribution)
+                        }
+                    }
+                }
+            }
         }
     }
 }
+
+@Composable
+fun ContributionDisplayItem(
+    contribution: Contribution,
+    modifier: Modifier = Modifier
+) {
+    // Helper to format Date to "MMM dd, yyyy" (e.g., Jan 01, 2023)
+    val fullDateFormatter = remember { SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()) }
+    // Helper to get Month name (e.g., January)
+    val monthFormatter = remember { SimpleDateFormat("MMMM", Locale.getDefault()) }
+    // Helper to format Double to currency String
+    val currencyFormatter = remember { NumberFormat.getCurrencyInstance(Locale.getDefault()) }
+
+    val contributionDate = remember(contribution.date) { contribution.date }
+    val monthName = remember(contributionDate) { monthFormatter.format(contributionDate) }
+    val fullDateString = remember(contributionDate) { fullDateFormatter.format(contributionDate) }
+
+
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Date: $fullDateString",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "Month: $monthName",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Spacer(Modifier.width(16.dp))
+            Text(
+                text = currencyFormatter.format(contribution.amount),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+

@@ -4,7 +4,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -40,33 +43,94 @@ class ContributionViewModel(application: Application) : AndroidViewModel(applica
 
     private val appDao = AppDatabase.getDatabase(application).appDao()
 
-    // Flow to observe all users for the dropdown
-    val allUsers: Flow<List<User>> = appDao.getAllUsers()
+    // --- For User Selection and Displaying Contributions for ONE Selected User ---
+    // (Used in UserContributionViewerScreen and AddContributionScreen for viewing existing contributions)
+
+    /**
+     * Flow to observe all users, primarily for populating dropdowns.
+     * Converts to StateFlow to be lifecycle-aware and shareable.
+     */
+    val allUsers: StateFlow<List<User>> = appDao.getAllUsers()
         .stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000), // Keep active for 5s after last subscriber
+            started = SharingStarted.WhileSubscribed(5000L), // Keep active for 5s after last observer stops
             initialValue = emptyList()
         )
 
+    // Internal MutableStateFlow to hold the ID of the currently selected user.
+    private val _selectedUserId = MutableStateFlow<Int?>(null)
+    // Public StateFlow to expose the selected user's ID (optional, if UI needs to react to just ID)
+    // val selectedUserId: StateFlow<Int?> = _selectedUserId.asStateFlow()
 
-    // Flow to observe all users with their contributions (for ViewContributionsScreen)
-    val usersWithContributions: Flow<List<UserWithContributions>> = appDao.getUsersWithContributions()
-        .stateIn(
+    /**
+     * Flow that emits the list of contributions for the user whose ID is in [_selectedUserId].
+     * `flatMapLatest` ensures that if [_selectedUserId] changes, the previous Flow collection
+     * is cancelled and a new one for the new user ID begins.
+     */
+    val contributionsForSelectedUser: StateFlow<List<Contribution>> =
+        _selectedUserId.flatMapLatest { userId ->
+            if (userId == null) {
+                kotlinx.coroutines.flow.flowOf(emptyList()) // Emit empty list if no user is selected
+            } else {
+                appDao.getContributionsForUser(userId) // DAO method to get contributions for a specific user
+            }
+        }.stateIn(
             scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
+            started = SharingStarted.WhileSubscribed(5000L),
             initialValue = emptyList()
         )
 
+    /**
+     * Called by the UI when a user is selected from a dropdown.
+     * Updates the [_selectedUserId], which in turn triggers `contributionsForSelectedUser` to update.
+     *
+     * @param userId The ID of the user selected, or null if selection is cleared.
+     */
+    fun selectUser(userId: Int?) {
+        _selectedUserId.value = userId
+    }
+
+    // --- For Adding a New Contribution ---
+    // (Used in AddContributionScreen)
+
+    /**
+     * Adds a new contribution to the database.
+     *
+     * @param userId The ID of the user making the contribution.
+     * @param amount The amount of the contribution.
+     * @param date The date of the contribution.
+     */
     fun addContribution(userId: Int, amount: Double, date: Long) {
         if (amount <= 0) {
-            // Handle invalid amount if necessary
+            // Consider logging this or providing feedback to the user through a different mechanism
             return
         }
         viewModelScope.launch {
-            val today = System.currentTimeMillis() // Get today's date
-            val contribution = Contribution(userId = userId, amount = amount, date = today)
+            val contribution = Contribution(userId = userId, amount = amount, date = date)
             appDao.insertContribution(contribution)
-            // Optionally, navigate back or show a success message
+            // After adding, `contributionsForSelectedUser` will automatically update if the
+            // new contribution belongs to the currently selected user, due to Room's reactive Flows.
         }
     }
+
+    // --- For Displaying ALL Users with ALL their Contributions ---
+    // (Used in a screen like ViewContributionsScreen, which lists all users and under each, their contributions)
+
+    /**
+     * Flow to observe all users along with their complete list of contributions.
+     * This is useful for screens that need to display a master list.
+     */
+    val usersWithContributions: StateFlow<List<UserWithContributions>> =
+        appDao.getUsersWithContributions() // DAO method using @Relation
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5000L),
+                initialValue = emptyList()
+            )
+
+    // --- Optional: Clearing selected user ---
+    // Could be useful if you want to explicitly reset the selection and the contributions list
+    // fun clearSelectedUser() {
+    // _selectedUserId.value = null
+    // }
 }

@@ -89,6 +89,7 @@ interface AppDao {
     @Query("SELECT * FROM users") // Select all users
     fun getUsersWithContributions(): Flow<List<UserWithContributions>>
 
+
     // --- Relationship Query (Optional but often useful) ---
 
     // Example: Get User with all their contributions
